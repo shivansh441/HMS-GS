@@ -88,6 +88,7 @@ export const createProperty = async (req, res) => {
             longitude,
             status: 'ACTIVE',
             currency: 'INR',
+            standardMessRate: cleanData.standardMessRate && type !== 'HOTEL' ? new Prisma.Decimal(cleanData.standardMessRate) : null,
         };
         // Safely attach relational manager data ONLY if it exists, avoiding explicit 'undefined'
         const managerConnections = [];
@@ -338,6 +339,12 @@ export const updateProperty = async (req, res) => {
         }
         if (updateData.longitude !== undefined) {
             updateData.longitude = parseFloat(String(updateData.longitude));
+        }
+        if (updateData.standardMessRate !== undefined) {
+            if (existingProperty.type === 'HOTEL' && updateData.standardMessRate !== null) {
+                return res.status(400).json({ error: 'Hotel properties cannot have mess configuration.' });
+            }
+            updateData.standardMessRate = updateData.standardMessRate !== null ? new Prisma.Decimal(updateData.standardMessRate) : null;
         }
         // ----------------------------------------------------------------------
         // Isolate managerIds out of standard protected fields

@@ -160,7 +160,7 @@ const AssignResidentModal: React.FC<AssignOccupantModalProps> = ({ show, room, i
             try {
               await createAssignmentApi(propertyId, { unitId: Number(room.id), accountId: Number(selectedId), expectedCheckIn: new Date().toISOString(), expectedCheckOut: null, ...(isHotel ? { agreedPricePerNight: numericRate } : { agreedMonthlyRate: numericRate }) }, token);
               setIsSubmitting(false);
-              onAssigned && onAssigned();
+              onAssigned?.();
               handleClose();
             } catch (e: any) {
               console.error('Assignment failed', e);

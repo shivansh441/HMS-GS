@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middlewares/auth.middleware.js';
 import { requireRole } from '../middlewares/role.middleware.js';
 import { requirePropertyScope } from '../middlewares/scope.middleware.js';
-import { assignMessFacility, createFoodOrder, getFoodMenu, getFoodOrders, getHostelMenu, getMealAssignments, saveFoodMenuItem, saveHostelMenu, updateFoodOrderStatus } from '../controllers/dining.controller.js';
+import { assignMessFacility, optOutMessFacility, createFoodOrder, getFoodMenu, getFoodOrders, getHostelMenu, getMealAssignments, saveFoodMenuItem, saveHostelMenu, updateFoodOrderStatus } from '../controllers/dining.controller.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, requirePropertyScope);
@@ -11,6 +11,7 @@ router.get('/hostel/menu', requireRole(['MANAGER', 'SUPER_ADMIN']), getHostelMen
 router.post('/hostel/menu', requireRole(['MANAGER', 'SUPER_ADMIN']), saveHostelMenu);
 router.get('/hostel/assignments', requireRole(['MANAGER', 'SUPER_ADMIN']), getMealAssignments);
 router.post('/hostel/assignments', requireRole(['MANAGER', 'SUPER_ADMIN']), assignMessFacility);
+router.delete('/hostel/assignments/:assignmentId', requireRole(['MANAGER', 'SUPER_ADMIN']), optOutMessFacility);
 
 router.get('/hotel/menu', requireRole(['MANAGER', 'SUPER_ADMIN', 'STAFF']), getFoodMenu);
 router.post('/hotel/menu', requireRole(['MANAGER', 'SUPER_ADMIN']), saveFoodMenuItem);

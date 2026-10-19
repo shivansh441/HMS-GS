@@ -42,7 +42,9 @@ if (typeof window !== "undefined") {
     try {
       const state = store.getState();
       window.localStorage.setItem("auth", JSON.stringify(state.auth));
-    } catch {}
+    } catch {
+      // Storage unavailable or quota exceeded
+    }
   });
 }
 

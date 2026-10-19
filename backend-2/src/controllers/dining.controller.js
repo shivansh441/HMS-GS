@@ -1,23 +1,24 @@
-import { FoodOrderStatus, MealType, Prisma } from '@prisma/client';
+import { MealType, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
 import { logAction } from '../services/audit.service.js';
 const propertyIdFrom = (req) => Number(req.params.propertyId);
-const ensurePropertyType = async (propertyId, type) => {
-    const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { type: true } });
+const ensureHostelProperty = async (propertyId) => {
+    const property = await prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { id: true, type: true, standardMessRate: true }
+    });
     if (!property)
-        return 'NOT_FOUND';
-    const isHotel = property.type === 'HOTEL';
-    if ((type === 'HOTEL') !== isHotel)
-        return 'WRONG_TYPE';
-    return null;
+        return { error: 'NOT_FOUND', status: 404, message: 'Property not found.' };
+    if (property.type === 'HOTEL') {
+        return { error: 'HOTEL_NOT_ALLOWED', status: 400, message: 'Hotels do not support mess, meal assignments, or restaurant dining.' };
+    }
+    return { property };
 };
 export const getHostelMenu = async (req, res) => {
     const propertyId = propertyIdFrom(req);
-    const typeError = await ensurePropertyType(propertyId, 'HOSTEL');
-    if (typeError === 'NOT_FOUND')
-        return res.status(404).json({ error: 'Property not found.' });
-    if (typeError)
-        return res.status(400).json({ error: 'Hostel menus are only available for hostel properties.' });
+    const check = await ensureHostelProperty(propertyId);
+    if ('error' in check)
+        return res.status(check.status).json({ error: check.message });
     const weekStart = req.query.weekStart ? new Date(String(req.query.weekStart)) : undefined;
     const menus = await prisma.hostelWeeklyMenu.findMany({
         where: { propertyId, ...(weekStart ? { weekStart } : {}) },
@@ -28,9 +29,9 @@ export const getHostelMenu = async (req, res) => {
 };
 export const saveHostelMenu = async (req, res) => {
     const propertyId = propertyIdFrom(req);
-    const typeError = await ensurePropertyType(propertyId, 'HOSTEL');
-    if (typeError)
-        return res.status(typeError === 'NOT_FOUND' ? 404 : 400).json({ error: typeError === 'NOT_FOUND' ? 'Property not found.' : 'Hostel menus are only available for hostel properties.' });
+    const check = await ensureHostelProperty(propertyId);
+    if ('error' in check)
+        return res.status(check.status).json({ error: check.message });
     const { id, weekStart, suggestedMessPrice, isPermanent = false, isPublished = false, items = [] } = req.body;
     if (!isPermanent && !weekStart)
         return res.status(400).json({ error: 'weekStart is required for a weekly menu.' });
@@ -68,111 +69,121 @@ export const saveHostelMenu = async (req, res) => {
 };
 export const getMealAssignments = async (req, res) => {
     const propertyId = propertyIdFrom(req);
+    const check = await ensureHostelProperty(propertyId);
+    if ('error' in check)
+        return res.status(check.status).json({ error: check.message });
     const assignments = await prisma.hostelMealAssignment.findMany({
         where: { propertyId, isActive: true },
-        include: { account: { select: { id: true, firstName: true, lastName: true, email: true } }, menu: { select: { id: true, weekStart: true, isPermanent: true } } },
+        include: {
+            account: { select: { id: true, firstName: true, lastName: true, email: true, customerType: true } },
+            menu: { select: { id: true, weekStart: true, isPermanent: true } }
+        },
         orderBy: { createdAt: 'desc' },
     });
     return res.json(assignments);
 };
 export const assignMessFacility = async (req, res) => {
     const propertyId = propertyIdFrom(req);
+    const check = await ensureHostelProperty(propertyId);
+    if ('error' in check)
+        return res.status(check.status).json({ error: check.message });
+    const { property } = check;
     const { accountId, menuId, startDate, endDate, monthlyRate } = req.body;
-    if (!accountId || !menuId || !startDate)
-        return res.status(400).json({ error: 'accountId, menuId, and startDate are required.' });
-    const [menu, account] = await Promise.all([
-        prisma.hostelWeeklyMenu.findFirst({ where: { id: Number(menuId), propertyId } }),
-        prisma.account.findUnique({ where: { id: Number(accountId) }, select: { id: true, customerType: true } }),
-    ]);
-    if (!menu)
-        return res.status(404).json({ error: 'Hostel menu not found.' });
-    if (!account || account.customerType === 'NONE')
+    if (!accountId || !startDate)
+        return res.status(400).json({ error: 'accountId and startDate are required.' });
+    const account = await prisma.account.findUnique({
+        where: { id: Number(accountId) },
+        select: { id: true, customerType: true }
+    });
+    if (!account || account.customerType === 'NONE') {
         return res.status(400).json({ error: 'A valid resident account is required.' });
-    if (menu.suggestedMessPrice === null)
-        return res.status(400).json({ error: 'Set the suggested mess price before assigning the facility.' });
-    const agreedMonthlyRate = monthlyRate ?? menu.suggestedMessPrice;
-    if (agreedMonthlyRate === null || agreedMonthlyRate === undefined || Number(agreedMonthlyRate) <= 0)
-        return res.status(400).json({ error: 'A valid resident monthly mess rate is required.' });
-    const assignment = await prisma.$transaction(async (tx) => {
-        const saved = await tx.hostelMealAssignment.upsert({
-            where: { accountId_menuId: { accountId: Number(accountId), menuId: Number(menuId) } },
-            update: { monthlyRate: new Prisma.Decimal(agreedMonthlyRate), startDate: new Date(startDate), endDate: endDate ? new Date(endDate) : null, isActive: true },
-            create: { propertyId, accountId: Number(accountId), menuId: Number(menuId), monthlyRate: new Prisma.Decimal(agreedMonthlyRate), startDate: new Date(startDate), endDate: endDate ? new Date(endDate) : null },
-        });
-        const residentAssignment = await tx.unitAssignment.findFirst({
-            where: { accountId: Number(accountId), unit: { propertyId }, isActive: true },
-            orderBy: { createdAt: 'desc' },
-        });
-        if (!residentAssignment)
-            throw new Error('RESIDENT_ASSIGNMENT_NOT_FOUND');
-        return saved;
+    }
+    // Temporary hostelers do not automatically receive permanent monthly mess plan
+    if (account.customerType === 'HOSTEL_GUEST' && monthlyRate === undefined) {
+        return res.status(400).json({ error: 'Temporary hostelers do not automatically receive a monthly mess plan without an authorized rate.' });
+    }
+    // Rate priority: explicitly provided monthlyRate > property standardMessRate
+    let applicableRate = null;
+    if (monthlyRate !== undefined && monthlyRate !== null) {
+        applicableRate = Number(monthlyRate);
+    }
+    else if (property.standardMessRate) {
+        applicableRate = Number(property.standardMessRate);
+    }
+    if (applicableRate === null || applicableRate < 0) {
+        return res.status(400).json({ error: 'No standard monthly mess rate is configured for this hostel property. Set the standard mess rate first.' });
+    }
+    const parsedStartDate = new Date(startDate);
+    const parsedEndDate = endDate ? new Date(endDate) : null;
+    // Prevent duplicate active mess assignments for overlapping periods
+    const overlapping = await prisma.hostelMealAssignment.findFirst({
+        where: {
+            accountId: Number(accountId),
+            propertyId,
+            isActive: true,
+            startDate: { lte: parsedEndDate ?? new Date('9999-12-31') },
+            OR: [
+                { endDate: null },
+                { endDate: { gte: parsedStartDate } }
+            ]
+        }
+    });
+    if (overlapping) {
+        return res.status(409).json({ error: 'Resident already has an active mess assignment for an overlapping period.' });
+    }
+    const assignment = await prisma.hostelMealAssignment.create({
+        data: {
+            propertyId,
+            accountId: Number(accountId),
+            menuId: menuId ? Number(menuId) : null,
+            monthlyRate: new Prisma.Decimal(applicableRate),
+            startDate: parsedStartDate,
+            endDate: parsedEndDate,
+            isActive: true,
+        },
+        include: {
+            account: { select: { id: true, firstName: true, lastName: true, email: true } }
+        }
+    });
+    await logAction(req, 'HOSTEL_MEAL_ASSIGNMENT', assignment.id, 'ASSIGN_MESS', {
+        propertyId,
+        accountId: Number(accountId),
+        rate: applicableRate
     });
     return res.status(201).json(assignment);
 };
-export const getFoodMenu = async (req, res) => {
+export const optOutMessFacility = async (req, res) => {
     const propertyId = propertyIdFrom(req);
-    const typeError = await ensurePropertyType(propertyId, 'HOTEL');
-    if (typeError)
-        return res.status(typeError === 'NOT_FOUND' ? 404 : 400).json({ error: typeError === 'NOT_FOUND' ? 'Property not found.' : 'Food menus are only available for hotel properties.' });
-    return res.json(await prisma.foodMenuItem.findMany({ where: { propertyId, isDeleted: false }, orderBy: [{ category: 'asc' }, { name: 'asc' }] }));
+    const check = await ensureHostelProperty(propertyId);
+    if ('error' in check)
+        return res.status(check.status).json({ error: check.message });
+    const assignmentId = Number(req.params.assignmentId);
+    const updated = await prisma.hostelMealAssignment.updateMany({
+        where: { id: assignmentId, propertyId, isActive: true },
+        data: { isActive: false, endDate: new Date() }
+    });
+    if (!updated.count) {
+        return res.status(404).json({ error: 'Active mess assignment not found.' });
+    }
+    await logAction(req, 'HOSTEL_MEAL_ASSIGNMENT', assignmentId, 'OPT_OUT_MESS', {
+        propertyId
+    });
+    return res.json({ message: 'Resident successfully opted out of the mess facility.' });
+};
+// Hotel restrictions: Hotel properties must NOT have food order or restaurant modules
+export const getFoodMenu = async (req, res) => {
+    return res.status(400).json({ error: 'Hotel properties do not support restaurant or food order modules.' });
 };
 export const saveFoodMenuItem = async (req, res) => {
-    const propertyId = propertyIdFrom(req);
-    const { id, name, description, category, price, taxRate = 0, isAvailable = true } = req.body;
-    if (!name || price === undefined || Number(price) < 0)
-        return res.status(400).json({ error: 'Name and a valid price are required.' });
-    const data = { name: String(name).trim(), description: description ? String(description).trim() : null, category: category ? String(category).trim() : null, price: new Prisma.Decimal(price), taxRate: new Prisma.Decimal(taxRate), isAvailable: Boolean(isAvailable) };
-    if (id) {
-        const updated = await prisma.foodMenuItem.updateMany({ where: { id: Number(id), propertyId, isDeleted: false }, data });
-        if (!updated.count)
-            return res.status(404).json({ error: 'Food menu item not found.' });
-        return res.json(await prisma.foodMenuItem.findUniqueOrThrow({ where: { id: Number(id) } }));
-    }
-    return res.status(201).json(await prisma.foodMenuItem.create({ data: { propertyId, ...data } }));
+    return res.status(400).json({ error: 'Hotel properties do not support restaurant or food order modules.' });
 };
 export const getFoodOrders = async (req, res) => {
-    const propertyId = propertyIdFrom(req);
-    return res.json(await prisma.foodOrder.findMany({ where: { propertyId }, include: { items: true, account: { select: { firstName: true, lastName: true } }, reservation: { select: { id: true, guestName: true, status: true } } }, orderBy: { createdAt: 'desc' } }));
+    return res.status(400).json({ error: 'Hotel properties do not support restaurant or food order modules.' });
 };
 export const createFoodOrder = async (req, res) => {
-    const propertyId = propertyIdFrom(req);
-    const { reservationId, items = [], notes } = req.body;
-    if (!reservationId || !Array.isArray(items) || items.length === 0)
-        return res.status(400).json({ error: 'A staying guest and at least one food item are required.' });
-    const reservation = await prisma.reservationRequest.findFirst({ where: { id: Number(reservationId), propertyId, status: 'CONVERTED' }, include: { unitAssignments: { where: { isActive: true, actualCheckIn: { not: null }, actualCheckOut: null }, orderBy: { id: 'asc' } } } });
-    if (!reservation || !reservation.unitAssignments[0])
-        return res.status(400).json({ error: 'Food can only be ordered for a currently staying guest.' });
-    const ids = items.map((item) => Number(item.menuItemId));
-    const menuItems = await prisma.foodMenuItem.findMany({ where: { propertyId, id: { in: ids }, isDeleted: false, isAvailable: true } });
-    if (menuItems.length !== ids.length)
-        return res.status(400).json({ error: 'One or more food items are unavailable.' });
-    const lines = items.map((item) => {
-        const menuItem = menuItems.find((candidate) => candidate.id === Number(item.menuItemId));
-        const quantity = Math.max(1, Number(item.quantity));
-        const lineTotal = menuItem.price.mul(quantity);
-        const tax = lineTotal.mul(menuItem.taxRate).div(100);
-        return { menuItemId: menuItem.id, itemNameSnapshot: menuItem.name, unitPriceSnapshot: menuItem.price, taxRateSnapshot: menuItem.taxRate, quantity, lineTotal, tax };
-    });
-    const subtotal = lines.reduce((sum, line) => sum.add(line.lineTotal), new Prisma.Decimal(0));
-    const taxAmount = lines.reduce((sum, line) => sum.add(line.tax), new Prisma.Decimal(0));
-    const totalAmount = subtotal.add(taxAmount);
-    const assignment = reservation.unitAssignments[0];
-    const order = await prisma.$transaction(async (tx) => {
-        const created = await tx.foodOrder.create({ data: { propertyId, reservationId: reservation.id, unitAssignmentId: assignment.id, accountId: assignment.accountId, notes: notes ? String(notes) : null, subtotal, taxAmount, totalAmount, items: { create: lines.map(({ tax, ...line }) => line) } }, include: { items: true } });
-        await tx.financialLedger.create({ data: { propertyId, accountId: assignment.accountId, reservationId: reservation.id, unitAssignmentId: assignment.id, folioType: 'INCIDENTAL', category: 'FOOD_AND_BEVERAGE', transactionType: 'INCOME', description: `Food order #${created.id}`, subTotal: subtotal, taxAmount, totalAmount, status: 'UNPAID' } });
-        return created;
-    });
-    await logAction(req, 'FOOD_ORDER', order.id, 'ORDER_PLACED', { reservationId: reservation.id, totalAmount: totalAmount.toString() });
-    return res.status(201).json(order);
+    return res.status(400).json({ error: 'Hotel properties do not support restaurant or food order modules.' });
 };
 export const updateFoodOrderStatus = async (req, res) => {
-    const propertyId = propertyIdFrom(req);
-    const status = req.body.status;
-    if (!Object.values(FoodOrderStatus).includes(status))
-        return res.status(400).json({ error: 'Invalid food order status.' });
-    const result = await prisma.foodOrder.updateMany({ where: { id: Number(req.params.orderId), propertyId }, data: { status } });
-    if (!result.count)
-        return res.status(404).json({ error: 'Food order not found.' });
-    return res.json(await prisma.foodOrder.findUniqueOrThrow({ where: { id: Number(req.params.orderId) }, include: { items: true } }));
+    return res.status(400).json({ error: 'Hotel properties do not support restaurant or food order modules.' });
 };
 //# sourceMappingURL=dining.controller.js.map

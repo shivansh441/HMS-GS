@@ -18,6 +18,7 @@ export interface Property {
   longitude?: number | null;
   status?: PropertyStatus;
   currency?: string | null;
+  standardMessRate?: number | string | null;
   managers?: Array<{
     id: number;
     firstName: string;

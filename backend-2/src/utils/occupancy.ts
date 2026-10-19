@@ -56,31 +56,12 @@ export const validateRoomPrivacyAndCapacity = async (
   if (activeAccountsInRoom.has(incomingAccountId)) return { isValid: true };
 
   // Hotel rooms are strictly private; no sharing across different primary accounts.
-  if (incomingCustomerType === 'HOTEL_GUEST' || unit.type === 'ROOM') {
+  if (incomingCustomerType === 'HOTEL_GUEST') {
     return { isValid: false, error: 'PRIVACY LOCK: Private hotel rooms cannot be shared across different primary accounts.' };
   }
 
-  // HOSTEL DORMITORY RULES (The Cohabitation Matrix):
-  if (unit.type === 'BED' || unit.category === 'DORMITORY') {
-    
-    // Rule: Hosteler + Unrelated Guest = BLOCKED
-    if (incomingCustomerType === 'HOSTEL_GUEST' && hasLongTermHosteler) {
-      return { isValid: false, error: 'PRIVACY LOCK: Cannot assign a short-term Guest to a room occupied by a long-term Hosteler.' };
-    }
-    if (incomingCustomerType === 'HOSTELER' && hasShortTermGuest) {
-      return { isValid: false, error: 'PRIVACY LOCK: Cannot assign a long-term Hosteler to a room occupied by short-term Guests.' };
-    }
-
-    // Rule: Hosteler + Hosteler = ALLOWED
-    if (incomingCustomerType === 'HOSTELER' && hasLongTermHosteler && !hasShortTermGuest) {
-      return { isValid: true }; 
-    }
-
-    // Rule: Guest + Guest = ALLOWED
-    if (incomingCustomerType === 'HOSTEL_GUEST' && hasShortTermGuest && !hasLongTermHosteler) {
-      return { isValid: true }; 
-    }
-  }
-
+  // HOSTEL RULES:
+  // A temporary hosteler (HOSTEL_GUEST) can occupy an available bed in a shared room or
+  // dormitory that contains permanent hostelers (HOSTELER), provided the unit's capacity allows it.
   return { isValid: true };
 };

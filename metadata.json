@@ -1,0 +1,8 @@
+{
+  "name": "Maharana Pratap Hostel Management System",
+  "description": "Comprehensive hostel and property management system in Jaipur with admin portal, reservations, residents, mess, and billing.",
+  "requestFramePermissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

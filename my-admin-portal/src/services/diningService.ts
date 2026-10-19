@@ -18,7 +18,9 @@ const request = async <T>(url: string, token: string | null, options?: RequestIn
 
 export const getHostelMenus = (propertyId: number, token: string | null) => request<HostelWeeklyMenu[]>(`/api/properties/${propertyId}/dining/hostel/menu`, token);
 export const saveHostelMenu = (propertyId: number, token: string | null, payload: { id?: number; weekStart?: string; suggestedMessPrice?: number; isPermanent: boolean; isPublished: boolean; items: unknown[] }) => request<HostelWeeklyMenu>(`/api/properties/${propertyId}/dining/hostel/menu`, token, { method: 'POST', body: JSON.stringify(payload) });
+export const getMealAssignments = (propertyId: number, token: string | null) => request<any[]>(`/api/properties/${propertyId}/dining/hostel/assignments`, token);
 export const assignMessFacility = (propertyId: number, token: string | null, payload: { accountId: number; menuId: number; startDate: string; endDate?: string; monthlyRate?: number }) => request(`/api/properties/${propertyId}/dining/hostel/assignments`, token, { method: 'POST', body: JSON.stringify(payload) });
+export const optOutMessFacility = (propertyId: number, assignmentId: number, token: string | null) => request(`/api/properties/${propertyId}/dining/hostel/assignments/${assignmentId}`, token, { method: 'DELETE' });
 export const getFoodMenu = (propertyId: number, token: string | null) => request<FoodMenuItem[]>(`/api/properties/${propertyId}/dining/hotel/menu`, token);
 export const saveFoodMenuItem = (propertyId: number, token: string | null, payload: Record<string, unknown>) => request<FoodMenuItem>(`/api/properties/${propertyId}/dining/hotel/menu`, token, { method: 'POST', body: JSON.stringify(payload) });
 export const getFoodOrders = (propertyId: number, token: string | null) => request<FoodOrder[]>(`/api/properties/${propertyId}/dining/hotel/orders`, token);

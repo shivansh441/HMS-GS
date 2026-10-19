@@ -47,14 +47,16 @@ export function Sidebar({ menuItems, currentHostel, onSelectHostel, onLogout }: 
       </div>
 
       <nav className="flex-1 px-4 py-2 space-y-2 overflow-y-auto custom-scrollbar">
-        {menuItems.map((item) => (
-          <NavMenuItem
-            key={item.id}
-            to={item.path}
-            label={item.path === "/admin" ? "Properties" : item.path === "/mess" && currentHostel?.type === "HOTEL" ? "Food & Orders" : item.path === "/mess" ? "Mess Menu" : item.label}
-            icon={item.icon}
-          />
-        ))}
+        {menuItems
+          .filter((item) => !(item.path === "/mess" && currentHostel?.type === "HOTEL"))
+          .map((item) => (
+            <NavMenuItem
+              key={item.id}
+              to={item.path}
+              label={item.path === "/admin" ? "Properties" : item.path === "/mess" ? "Mess Facility" : item.label}
+              icon={item.icon}
+            />
+          ))}
 
         <div className="pt-4 mt-4 border-t border-slate-200 dark:border-slate-800/50">
           <NavMenuItem

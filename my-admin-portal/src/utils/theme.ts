@@ -12,6 +12,8 @@ export function applyTheme(isDark: boolean) {
   root.classList.toggle("dark", isDark);
   try {
     root.style.colorScheme = isDark ? "dark" : "light";
-  } catch {}
+  } catch {
+    // Unsupported environments safely ignored
+  }
   window.localStorage.setItem(STORAGE_KEY, isDark ? "dark" : "light");
 }

@@ -23,6 +23,7 @@ import analyticsRoutes from './routes/analytics.routes.js'; // Phase 10: Analyti
 import communicationRoutes from './routes/communication.routes.js'; // Phase 11: Communications
 import accountRoutes from './routes/account.routes.js';
 import diningRoutes from './routes/dining.routes.js';
+import hrRoutes from './routes/hr.routes.js';
 
 // --- PHASE 12: SECURITY IMPORTS ---
 import { setupSecurity } from './middlewares/security.middleware.js';
@@ -98,6 +99,8 @@ app.use('/api/properties/:propertyId/analytics', analyticsRoutes);
 app.use('/api/properties/:propertyId/communication', communicationRoutes);
 
 app.use('/api/accounts', accountRoutes);
+app.use('/api/hr', hrRoutes);
+app.use('/api/properties/:propertyId/hr', hrRoutes);
 
 // ----------------------------------------------------------------------
 // GLOBAL ERROR TRAP

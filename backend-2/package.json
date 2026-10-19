@@ -7,6 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node src/index.js",
     "build": "tsc",
+    "test": "node ../scripts/run-tests.js",
     "backfill:agreed-rates": "tsx scripts/backfill-agreed-rates.ts"
   },
   "keywords": [],

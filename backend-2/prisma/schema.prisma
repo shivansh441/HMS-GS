@@ -219,9 +219,16 @@ model Account {
   sessions                 Session[]
 
   // HR Relations
-  salaryDeductions      SalaryDeduction[]
-  hostelMealAssignments HostelMealAssignment[]
-  foodOrders            FoodOrder[]
+  salaryDeductions         SalaryDeduction[]
+  hostelMealAssignments    HostelMealAssignment[]
+  foodOrders               FoodOrder[]
+  staffPropertyAssignments StaffPropertyAssignment[]
+  staffWorkRecords         StaffMonthlyWorkRecord[]
+  workRecordsRecorded      StaffMonthlyWorkRecord[]  @relation("WorkRecordRecordedBy")
+  staffPayrollRecords      StaffPayrollRecord[]
+  payrollsProcessed        StaffPayrollRecord[]      @relation("PayrollProcessedBy")
+  salaryRevisions          StaffSalaryRevision[]
+  salaryRevisionsChanged   StaffSalaryRevision[]     @relation("SalaryChangedBy")
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
@@ -280,12 +287,17 @@ model Property {
   amenitySchedules AmenitySchedule[]
   reservationReqs  ReservationRequest[]
 
+  standardMessRate Decimal? @db.Decimal(10, 2)
+
   // HR Relations
-  publicHolidays        PublicHoliday[]
-  hostelWeeklyMenus     HostelWeeklyMenu[]
-  hostelMealAssignments HostelMealAssignment[]
-  foodMenuItems         FoodMenuItem[]
-  foodOrders            FoodOrder[]
+  publicHolidays           PublicHoliday[]
+  hostelWeeklyMenus        HostelWeeklyMenu[]
+  hostelMealAssignments    HostelMealAssignment[]
+  foodMenuItems            FoodMenuItem[]
+  foodOrders               FoodOrder[]
+  staffPropertyAssignments StaffPropertyAssignment[]
+  staffWorkRecords         StaffMonthlyWorkRecord[]
+  staffPayrollRecords      StaffPayrollRecord[]
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
@@ -639,20 +651,19 @@ model HostelMenuItem {
 }
 
 model HostelMealAssignment {
-  id          Int              @id @default(autoincrement())
+  id          Int               @id @default(autoincrement())
   propertyId  Int
-  property    Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property    Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   accountId   Int
-  account     Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  menuId      Int
-  menu        HostelWeeklyMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  monthlyRate Decimal          @db.Decimal(10, 2)
-  startDate   DateTime         @db.Date
-  endDate     DateTime?        @db.Date
-  isActive    Boolean          @default(true)
-  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
+  account     Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  menuId      Int?
+  menu        HostelWeeklyMenu? @relation(fields: [menuId], references: [id], onDelete: SetNull)
+  monthlyRate Decimal           @db.Decimal(10, 2)
+  startDate   DateTime          @db.Date
+  endDate     DateTime?         @db.Date
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now()) @db.Timestamptz(6)
 
-  @@unique([accountId, menuId])
   @@index([propertyId, accountId, isActive])
 }
 
@@ -747,6 +758,97 @@ model SalaryDeduction {
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model StaffPropertyAssignment {
+  id          Int       @id @default(autoincrement())
+  accountId   Int
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  propertyId  Int
+  property    Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  designation String?
+  startDate   DateTime  @default(now()) @db.Date
+  endDate     DateTime? @db.Date
+  isActive    Boolean   @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([propertyId, isActive])
+  @@index([accountId])
+}
+
+model StaffMonthlyWorkRecord {
+  id                  Int       @id @default(autoincrement())
+  accountId           Int
+  account             Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  propertyId          Int?
+  property            Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  payrollPeriod       String    // e.g. "2026-10"
+  year                Int
+  month               Int
+  workingDays         Int       // non-negative whole number <= max days in month
+  notes               String?
+  status              String    @default("APPROVED") // DRAFT, APPROVED
+  recordedByAccountId Int?
+  recordedBy          Account?  @relation("WorkRecordRecordedBy", fields: [recordedByAccountId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  payrollRecords StaffPayrollRecord[]
+
+  @@unique([accountId, payrollPeriod])
+  @@index([propertyId, payrollPeriod])
+  @@index([accountId])
+}
+
+model StaffPayrollRecord {
+  id                   Int                     @id @default(autoincrement())
+  accountId            Int
+  account              Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  propertyId           Int?
+  property             Property?               @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  payrollPeriod        String                  // e.g. "2026-10"
+  year                 Int
+  month                Int
+  baseSalary           Decimal                 @db.Decimal(10, 2)
+  workingDays          Int?
+  grossSalary          Decimal                 @db.Decimal(10, 2)
+  totalDeductions      Decimal                 @default(0.00) @db.Decimal(10, 2)
+  netSalary            Decimal                 @db.Decimal(10, 2)
+  paymentStatus        PaymentStatus           @default(UNPAID)
+  paymentMethod        PaymentMethod?
+  paymentDate          DateTime?               @db.Date
+  referenceId          String?
+  notes                String?
+  workRecordId         Int?
+  workRecord           StaffMonthlyWorkRecord? @relation(fields: [workRecordId], references: [id], onDelete: SetNull)
+  processedByAccountId Int?
+  processedBy          Account?                @relation("PayrollProcessedBy", fields: [processedByAccountId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([accountId, payrollPeriod])
+  @@index([propertyId, payrollPeriod])
+  @@index([accountId])
+}
+
+model StaffSalaryRevision {
+  id                 Int       @id @default(autoincrement())
+  accountId          Int
+  account            Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  previousSalary     Decimal?  @db.Decimal(10, 2)
+  newSalary          Decimal   @db.Decimal(10, 2)
+  effectiveDate      DateTime  @default(now()) @db.Date
+  reason             String?
+  changedByAccountId Int?
+  changedBy          Account?  @relation("SalaryChangedBy", fields: [changedByAccountId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([accountId, effectiveDate])
 }
 
 // =====================================================================================

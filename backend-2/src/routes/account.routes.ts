@@ -13,7 +13,7 @@ import {
 import { requireAuth} from '../middlewares/auth.middleware.js'; 
 import { requireRole } from '../middlewares/role.middleware.js';
 
-const router = Router();
+const router: Router = Router();
 
 // ============================================================================
 // INTERNAL ACCOUNT MANAGEMENT ROUTES

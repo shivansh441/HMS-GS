@@ -1,0 +1,22 @@
+{
+  "name": "hms-gs-root",
+  "private": true,
+  "version": "1.0.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=my-admin-portal",
+    "build": "npm run build --workspace=my-admin-portal",
+    "build:admin": "npm run build --workspace=my-admin-portal",
+    "build:landing": "npm run build --workspace=landing_site",
+    "build:backend": "DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/postgres\" npm run build --workspace=backend-2",
+    "test": "node scripts/run-tests.js",
+    "lint": "npm run lint --workspace=my-admin-portal"
+  },
+  "workspaces": [
+    "my-admin-portal",
+    "landing_site",
+    "backend-2"
+  ]
+}

@@ -75,6 +75,40 @@ export function AssigningAssociationSection({
   const safeFormData = formData || {};
   const safeErrors = errors || {};
 
+  const selectedUnit = units.find((unit) => String(unit.id) === String(unitId));
+  const isMonthly = !guestMode && formData?.customerType === 'HOSTELER';
+  const defaultRate = isMonthly ? selectedUnit?.defaultRecurringMonthlyRate : selectedUnit?.defaultPricePerNight;
+  const agreedRate = isMonthly ? formData?.agreedMonthlyRate : formData?.agreedPricePerNight;
+
+  useEffect(() => {
+    if (!isResident || !isMonthly || !propertyId || !accessToken) {
+      setDefaultMessRate(null);
+      setIsCustomMessRate(false);
+      return;
+    }
+
+    void getHostelMenus(Number(propertyId), accessToken)
+      .then((menus) => {
+        const menu = menus.find((item) => item.isPermanent && item.suggestedMessPrice != null)
+          ?? menus.find((item) => item.suggestedMessPrice != null);
+        setDefaultMessRate(menu?.suggestedMessPrice == null ? null : Number(menu.suggestedMessPrice));
+      })
+      .catch(() => setDefaultMessRate(null));
+  }, [accessToken, isMonthly, isResident, propertyId]);
+
+  useEffect(() => {
+    if (!isResident || !selectedUnit || formData?.isCustomRate === true) return;
+    const currentRate = isMonthly ? formData?.agreedMonthlyRate : formData?.agreedPricePerNight;
+    if (String(currentRate ?? '') === String(defaultRate ?? '')) return;
+    onFieldChange(isMonthly ? 'agreedMonthlyRate' : 'agreedPricePerNight', defaultRate ?? null);
+  }, [defaultRate, formData?.agreedMonthlyRate, formData?.agreedPricePerNight, formData?.isCustomRate, isMonthly, isResident, onFieldChange, selectedUnit]);
+
+  useEffect(() => {
+    if (!isResident || formData?.includeMess !== true || defaultMessRate == null || isCustomMessRate) return;
+    if (String(formData?.agreedMonthlyMessRate ?? '') === String(defaultMessRate)) return;
+    onFieldChange('agreedMonthlyMessRate', defaultMessRate);
+  }, [defaultMessRate, formData?.agreedMonthlyMessRate, formData?.includeMess, isCustomMessRate, isResident, onFieldChange]);
+
   // Employee mode (for EmployeeFormPanel)
   if (!isResident) {
     const role = safeFormData.role || 'STAFF';
@@ -156,39 +190,6 @@ export function AssigningAssociationSection({
       value: String(unit.id),
     })),
   ];
-  const selectedUnit = units.find((unit) => String(unit.id) === String(unitId));
-  const isMonthly = !guestMode && formData.customerType === 'HOSTELER';
-  const defaultRate = isMonthly ? selectedUnit?.defaultRecurringMonthlyRate : selectedUnit?.defaultPricePerNight;
-  const agreedRate = isMonthly ? formData.agreedMonthlyRate : formData.agreedPricePerNight;
-
-  useEffect(() => {
-    if (!isMonthly || !propertyId || !accessToken) {
-      setDefaultMessRate(null);
-      setIsCustomMessRate(false);
-      return;
-    }
-
-    void getHostelMenus(Number(propertyId), accessToken)
-      .then((menus) => {
-        const menu = menus.find((item) => item.isPermanent && item.suggestedMessPrice != null)
-          ?? menus.find((item) => item.suggestedMessPrice != null);
-        setDefaultMessRate(menu?.suggestedMessPrice == null ? null : Number(menu.suggestedMessPrice));
-      })
-      .catch(() => setDefaultMessRate(null));
-  }, [accessToken, isMonthly, propertyId]);
-
-  useEffect(() => {
-    if (!selectedUnit || formData.isCustomRate === true) return;
-    const currentRate = isMonthly ? formData.agreedMonthlyRate : formData.agreedPricePerNight;
-    if (String(currentRate ?? '') === String(defaultRate ?? '')) return;
-    onFieldChange(isMonthly ? 'agreedMonthlyRate' : 'agreedPricePerNight', defaultRate ?? null);
-  }, [defaultRate, formData.agreedMonthlyRate, formData.agreedPricePerNight, formData.isCustomRate, isMonthly, onFieldChange, selectedUnit]);
-
-  useEffect(() => {
-    if (formData.includeMess !== true || defaultMessRate == null || isCustomMessRate) return;
-    if (String(formData.agreedMonthlyMessRate ?? '') === String(defaultMessRate)) return;
-    onFieldChange('agreedMonthlyMessRate', defaultMessRate);
-  }, [defaultMessRate, formData.agreedMonthlyMessRate, formData.includeMess, isCustomMessRate, onFieldChange]);
 
   return (
     <div className="form-section rounded-[2rem] border border-slate-100 bg-slate-50 p-6 md:p-8 dark:border-slate-700/50 dark:bg-slate-800/30">
