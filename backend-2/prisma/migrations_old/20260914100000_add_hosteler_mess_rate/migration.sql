@@ -1,0 +1,1 @@
+ALTER TABLE "UnitAssignment" ADD COLUMN "agreedMonthlyMessRate" DECIMAL(10,2);

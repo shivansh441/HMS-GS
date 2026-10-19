@@ -1,0 +1,790 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =====================================================================================
+// 1. ENUMS (Global Types)
+// =====================================================================================
+
+enum AccountRole {
+  SUPER_ADMIN
+  MANAGER
+  STAFF
+  CUSTOMER
+}
+
+enum CustomerType {
+  HOSTELER // Long-term hostel residents/students
+  HOSTEL_GUEST // Short-term hostel visitors/backpackers
+  HOTEL_GUEST // Short-term hotel transient guests
+  GUEST // Shared identity type for short-term guests
+  NONE // Internal system administration / staff
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum IdProofType {
+  AADHAAR
+  PAN
+  PASSPORT
+  DRIVING_LICENSE
+  VOTER_ID
+  OTHER
+}
+
+enum PropertyType {
+  HOSTEL_BOYS
+  HOSTEL_GIRLS
+  HOSTEL_COED
+  HOTEL
+  CO_LIVING
+}
+
+enum PropertyStatus {
+  ACTIVE
+  MAINTENANCE
+  CLOSED
+}
+
+enum UnitType {
+  BED // Shared inventory (Hostels)
+  ROOM // Private inventory (Hotels)
+  SUITE // Premium partitioned inventory
+}
+
+enum UnitCategory {
+  CLASSIC
+  DELUXE
+  SUPER_DELUXE
+  EXECUTIVE
+  SINGLE_ROOM
+  DOUBLE_ROOM
+  TRIPLE_ROOM
+  QUADRUPLE_ROOM
+  DORMITORY
+}
+
+enum UnitStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+  BLOCKED
+}
+
+enum BlockReason {
+  MAINTENANCE
+  DEEP_CLEANING
+  STAFF_USE
+  OUT_OF_ORDER
+}
+
+enum BillingStrategy {
+  PER_NIGHT_STAY // Standard hotel style
+  RECURRING_MONTHLY // Long-term resident billing
+}
+
+enum FolioType {
+  MAIN // Room rate, accommodation taxes
+  INCIDENTAL // Room service, minibar, damages (Personal Card)
+}
+
+enum LedgerCategory {
+  ACCOMMODATION_FEE
+  PAYROLL
+  AMENITY_PURCHASE
+  FOOD_AND_BEVERAGE
+  PENALTY
+  OTHER
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum PaymentStatus {
+  PAID
+  UNPAID
+  PARTIAL
+  OVERDUE
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  BANK_TRANSFER
+  CHEQUE
+}
+
+// FeeType is a real table (not a fixed enum) so an admin can add a brand-new
+// fee name from the UI and have it show up as a reusable option next time.
+// Per-property tax rates (formerly TaxRule) have been removed entirely — no
+// GST/tax percentage is calculated anywhere in this system anymore.
+
+enum ReservationStatus {
+  PENDING
+  APPROVED
+  WAITLISTED
+  REJECTED
+  CONVERTED
+  CANCELLED
+  NO_SHOW
+}
+
+// --- HR & PAYROLL ENUMS ---
+enum DeductionType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum MealType {
+  ALL
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACKS
+}
+
+enum FoodOrderStatus {
+  PLACED
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+// =====================================================================================
+// 2. CORE ARCHITECTURE & IDENTITY
+// =====================================================================================
+
+model Account {
+  id           Int          @id @default(autoincrement())
+  role         AccountRole  @default(CUSTOMER)
+  customerType CustomerType @default(NONE)
+
+  firstName    String
+  lastName     String
+  email        String?   @unique
+  passwordHash String?
+  phone        String?
+  parentPhone  String? // Critical for hostel emergency workflows
+  dateOfBirth  DateTime? @db.Date
+  gender       Gender?
+
+  idType   IdProofType?
+  idNumber String?
+
+  address         String?
+  city            String?
+  state           String?
+  pincode         String?
+  photoUrl        String?
+  idProofPhotoUrl String?
+
+  // Operational Workers & Staff Parameters
+  department       String?
+  designation      String?
+  baseSalary       Decimal?  @db.Decimal(10, 2)
+  recurringSubsidy Decimal?  @db.Decimal(10, 2)
+  joinDate         DateTime? @db.Date
+  leftDate         DateTime? @db.Date
+
+  isActive  Boolean @default(true)
+  isDeleted Boolean @default(false)
+
+  // Structural Inverse Relations
+  managedProperties  Property[] @relation("PropertyManagers")
+  staffProperties    Property[] @relation("PropertyStaff")
+  residentPropertyId Int?
+  residentProperty   Property?  @relation("PropertyResidents", fields: [residentPropertyId], references: [id], onDelete: SetNull)
+
+  unitAssignments          UnitAssignment[]
+  primaryReservations      ReservationRequest[]  @relation("ReservationPrimaryGuest")
+  reservationOccupants     ReservationOccupant[] @relation("ReservationOccupantAccount")
+  accompanyingGuestRecords AccompanyingGuest[]   @relation("AccompanyingGuestAccount")
+  financialLedgers         FinancialLedger[]
+  amenitySchedules         AmenitySchedule[]
+  receiptsRecorded         PaymentReceipt[]      @relation("ReceiptRecordedBy")
+  systemStatusLogs         SystemStatusLog[]     @relation("LogPerformedBy")
+  sessions                 Session[]
+
+  // HR Relations
+  salaryDeductions      SalaryDeduction[]
+  hostelMealAssignments HostelMealAssignment[]
+  foodOrders            FoodOrder[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([idType, idNumber])
+  @@index([role, customerType])
+  @@index([isActive, isDeleted])
+}
+
+model Session {
+  id        String  @id @default(uuid())
+  accountId Int
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  refreshToken String   @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([accountId])
+}
+
+// =====================================================================================
+// 3. REAL ESTATE & INVENTORY
+// =====================================================================================
+
+model Property {
+  id           Int            @id @default(autoincrement())
+  name         String
+  type         PropertyType   @default(HOTEL)
+  status       PropertyStatus @default(ACTIVE)
+  floors       Int            @default(1)
+  address      String
+  city         String
+  state        String
+  pincode      String
+  contactPhone String
+  contactEmail String?
+  facilities   String[]
+  currency     String         @default("INR")
+  isDeleted    Boolean        @default(false)
+
+  latitude       Float?
+  longitude      Float?
+  geofenceRadius Int    @default(100)
+
+  managers  Account[] @relation("PropertyManagers")
+  staff     Account[] @relation("PropertyStaff")
+  residents Account[] @relation("PropertyResidents")
+
+  units            Unit[]
+  chargeSettings   PropertyChargeSetting[]
+  financialLedgers FinancialLedger[]
+  amenitySchedules AmenitySchedule[]
+  reservationReqs  ReservationRequest[]
+
+  // HR Relations
+  publicHolidays        PublicHoliday[]
+  hostelWeeklyMenus     HostelWeeklyMenu[]
+  hostelMealAssignments HostelMealAssignment[]
+  foodMenuItems         FoodMenuItem[]
+  foodOrders            FoodOrder[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([city, status])
+  @@index([isDeleted])
+}
+
+// Reusable fee/charge names (via bill customisation, extra property charges, etc.)
+// that an admin can add on the fly and reuse across properties.
+model FeeType {
+  id              Int       @id @default(autoincrement())
+  name            String    @unique // "Hostel Fee", "Mess Fee", "Bed Charges", "Unit Charges", "Electricity Bill", "Water Bill", "Maintenance Charge", "Late Fee", or any admin-added name
+  isSystemDefined Boolean   @default(false) // true for the seeded defaults above, false for anything an admin types in later
+  isActive        Boolean   @default(true)
+
+  chargeSettings PropertyChargeSetting[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([isActive])
+}
+
+// Per-property on/off toggle for an optional extra-charge FeeType (electricity, water,
+// maintenance, late fee, or a custom one). No fixed amount here — the actual amount is
+// entered per hosteler, per billing period, when the charge is added to their invoice row.
+model PropertyChargeSetting {
+  id         Int      @id @default(autoincrement())
+  propertyId Int
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  feeTypeId  Int
+  feeType    FeeType  @relation(fields: [feeTypeId], references: [id], onDelete: Restrict)
+  isEnabled  Boolean  @default(true)
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([propertyId, feeTypeId])
+  @@index([propertyId, isEnabled])
+}
+
+model Unit {
+  id         Int      @id @default(autoincrement())
+  propertyId Int
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  unitNumber String
+  floor      Int    @default(0)
+
+  type     UnitType     @default(ROOM)
+  category UnitCategory @default(CLASSIC)
+  capacity Int          @default(1)
+
+  // Reference/default rate shown to staff when creating a UnitAssignment. NOT used for billing.
+  defaultPricePerNight        Decimal? @db.Decimal(10, 2)
+  // Reference/default rate shown to staff when creating a UnitAssignment. NOT used for billing.
+  defaultRecurringMonthlyRate Decimal? @db.Decimal(10, 2)
+
+  features String[]
+  status   UnitStatus @default(AVAILABLE)
+
+  unitAssignments   UnitAssignment[]
+  maintenanceBlocks UnitBlock[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([propertyId, unitNumber])
+  @@index([propertyId, status])
+}
+
+model UnitBlock {
+  id          Int         @id @default(autoincrement())
+  unitId      Int
+  unit        Unit        @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  reason      BlockReason @default(MAINTENANCE)
+  description String?
+  startDate   DateTime    @db.Timestamptz(6)
+  endDate     DateTime    @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([unitId, startDate, endDate])
+}
+
+// =====================================================================================
+// 4. RESERVATIONS & STAY LOGISTICS
+// =====================================================================================
+
+model ReservationRequest {
+  id               Int      @id @default(autoincrement())
+  propertyId       Int
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  primaryAccountId Int?
+  primaryAccount   Account? @relation("ReservationPrimaryGuest", fields: [primaryAccountId], references: [id], onDelete: SetNull)
+
+  guestName String
+  mobile    String
+  email     String?
+
+  requestedCategory UnitCategory @default(CLASSIC)
+  requestedType     UnitType     @default(ROOM)
+  requestedQuantity Int          @default(1)
+
+  requestedCustomerType CustomerType @default(HOTEL_GUEST)
+
+  numberOfAdults   Int @default(1)
+  numberOfChildren Int @default(0)
+
+  expectedCheckIn DateTime @db.Date
+
+  expectedCheckOut DateTime? @db.Date
+
+  purpose         String?
+  specialRequests String?
+
+  status          ReservationStatus @default(PENDING)
+  rejectionReason String?
+  convertedAt     DateTime?         @db.Timestamptz(6)
+
+  occupants        ReservationOccupant[]
+  unitAssignments  UnitAssignment[]
+  financialLedgers FinancialLedger[]
+  foodOrders       FoodOrder[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([propertyId, status])
+  @@index([mobile, email])
+  @@index([primaryAccountId])
+}
+
+model ReservationOccupant {
+  id                   Int                @id @default(autoincrement())
+  reservationRequestId Int
+  reservationRequest   ReservationRequest @relation(fields: [reservationRequestId], references: [id], onDelete: Cascade)
+  accountId            Int?
+  account              Account?           @relation("ReservationOccupantAccount", fields: [accountId], references: [id], onDelete: SetNull)
+
+  isPrimary       Boolean      @default(false)
+  firstName       String
+  lastName        String?
+  age             Int?
+  gender          Gender?
+  email           String?
+  phone           String?
+  parentPhone     String?
+  dateOfBirth     DateTime?    @db.Date
+  address         String?
+  city            String?
+  state           String?
+  pincode         String?
+  idType          IdProofType?
+  idNumber        String?
+  photoUrl        String?
+  idProofPhotoUrl String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([reservationRequestId])
+  @@index([reservationRequestId, isPrimary])
+  @@index([accountId])
+}
+
+model UnitAssignment {
+  id        Int     @id @default(autoincrement())
+  unitId    Int
+  unit      Unit    @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  accountId Int
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  reservationRequestId Int?
+  reservationRequest   ReservationRequest? @relation(fields: [reservationRequestId], references: [id], onDelete: SetNull)
+
+  billingStrategy BillingStrategy @default(PER_NIGHT_STAY)
+
+  agreedPricePerNight   Decimal? @db.Decimal(10, 2)
+  agreedMonthlyRate     Decimal? @db.Decimal(10, 2)
+  agreedMonthlyMessRate Decimal? @db.Decimal(10, 2)
+  isCustomRate          Boolean  @default(false)
+
+  expectedCheckIn  DateTime  @db.Timestamptz(6)
+  actualCheckIn    DateTime? @db.Timestamptz(6)
+  expectedCheckOut DateTime? @db.Timestamptz(6)
+  actualCheckOut   DateTime? @db.Timestamptz(6)
+
+  isActive Boolean @default(true)
+  notes    String?
+
+  financialLedgers   FinancialLedger[]
+  foodOrders         FoodOrder[]
+  accompanyingGuests AccompanyingGuest[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([unitId, isActive])
+  @@index([accountId])
+  @@index([reservationRequestId])
+}
+
+model AccompanyingGuest {
+  id               Int            @id @default(autoincrement())
+  unitAssignmentId Int
+  unitAssignment   UnitAssignment @relation(fields: [unitAssignmentId], references: [id], onDelete: Cascade)
+  accountId        Int?
+  account          Account?       @relation("AccompanyingGuestAccount", fields: [accountId], references: [id], onDelete: SetNull)
+
+  firstName       String
+  lastName        String
+  age             Int?
+  gender          Gender?
+  parentPhone     String?
+  dateOfBirth     DateTime?    @db.Date
+  idType          IdProofType?
+  idNumber        String?
+  address         String?
+  city            String?
+  state           String?
+  pincode         String?
+  photoUrl        String?
+  idProofPhotoUrl String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([unitAssignmentId])
+  @@index([accountId])
+}
+
+// =====================================================================================
+// 5. FINANCIAL ENGINE & INVOICING
+// =====================================================================================
+
+model FinancialLedger {
+  id         Int      @id @default(autoincrement())
+  propertyId Int
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  accountId  Int
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  unitAssignmentId Int?
+  unitAssignment   UnitAssignment? @relation(fields: [unitAssignmentId], references: [id], onDelete: Restrict)
+
+  // FIXED: now nullable. Hostelers created directly through the resident
+  // page (no ReservationRequest involved) still need to be invoiced.
+  reservationId Int?
+  reservation   ReservationRequest? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  folioType       FolioType       @default(MAIN)
+  category        LedgerCategory
+  transactionType TransactionType @default(INCOME)
+
+  invoiceNumber      String?   @unique
+  billingKey         String?   @unique
+  description        String?
+  billingPeriodStart DateTime? @db.Date
+  billingPeriodEnd   DateTime? @db.Date
+  dueDate            DateTime? @db.Date
+  currency           String    @default("INR")
+
+  subTotal      Decimal @default(0.00) @db.Decimal(10, 2)
+  adjustments   Decimal @default(0.00) @db.Decimal(10, 2)
+  taxAmount     Decimal @default(0.00) @db.Decimal(10, 2)
+  taxBreakdown  Json? // Snapshot array of {feeTypeId, label, baseAmount, taxRate, taxAmount, totalAmount}
+  serviceCharge Decimal @default(0.00) @db.Decimal(10, 2)
+  totalAmount   Decimal @default(0.00) @db.Decimal(10, 2)
+  paidAmount    Decimal @default(0.00) @db.Decimal(10, 2)
+
+  status    PaymentStatus @default(UNPAID)
+  isDeleted Boolean       @default(false)
+
+  receipts PaymentReceipt[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([accountId])
+  @@index([propertyId])
+  @@index([reservationId])
+  @@index([category, status])
+  @@index([isDeleted])
+}
+
+model PaymentReceipt {
+  id                  Int             @id @default(autoincrement())
+  ledgerId            Int
+  ledger              FinancialLedger @relation(fields: [ledgerId], references: [id], onDelete: Restrict)
+  recordedByAccountId Int?
+  recordedBy          Account?        @relation("ReceiptRecordedBy", fields: [recordedByAccountId], references: [id], onDelete: SetNull)
+
+  amount          Decimal       @db.Decimal(10, 2)
+  method          PaymentMethod @default(CASH)
+  referenceId     String?
+  remarks         String?
+  recordedByLabel String?
+  receivedAt      DateTime      @default(now()) @db.Timestamptz(6)
+
+  @@index([ledgerId])
+  @@index([referenceId])
+}
+
+model AmenitySchedule {
+  id         Int      @id @default(autoincrement())
+  propertyId Int
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  accountId  Int?
+  account    Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  name          String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  scheduleData  Json
+  isActive      Boolean   @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([propertyId, isActive])
+}
+
+model HostelWeeklyMenu {
+  id                 Int                    @id @default(autoincrement())
+  propertyId         Int
+  property           Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  weekStart          DateTime?              @db.Date
+  suggestedMessPrice Decimal?               @db.Decimal(10, 2)
+  isPermanent        Boolean                @default(false)
+  isPublished        Boolean                @default(false)
+  items              HostelMenuItem[]
+  assignments        HostelMealAssignment[]
+  createdAt          DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime               @updatedAt @db.Timestamptz(6)
+
+  @@unique([propertyId, weekStart])
+  @@index([propertyId, isPermanent, isPublished])
+}
+
+model HostelMenuItem {
+  id          Int              @id @default(autoincrement())
+  menuId      Int
+  menu        HostelWeeklyMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  dayOfWeek   Int
+  mealType    MealType
+  name        String
+  description String?
+  isAvailable Boolean          @default(true)
+
+  @@index([menuId, dayOfWeek, mealType])
+}
+
+model HostelMealAssignment {
+  id          Int              @id @default(autoincrement())
+  propertyId  Int
+  property    Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  accountId   Int
+  account     Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  menuId      Int
+  menu        HostelWeeklyMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  monthlyRate Decimal          @db.Decimal(10, 2)
+  startDate   DateTime         @db.Date
+  endDate     DateTime?        @db.Date
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
+
+  @@unique([accountId, menuId])
+  @@index([propertyId, accountId, isActive])
+}
+
+model FoodMenuItem {
+  id          Int             @id @default(autoincrement())
+  propertyId  Int
+  property    Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  category    String?
+  price       Decimal         @db.Decimal(10, 2)
+  taxRate     Decimal         @default(0) @db.Decimal(5, 2)
+  isAvailable Boolean         @default(true)
+  isDeleted   Boolean         @default(false)
+  orderItems  FoodOrderItem[]
+  createdAt   DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(6)
+
+  @@index([propertyId, isAvailable, isDeleted])
+}
+
+model FoodOrder {
+  id               Int             @id @default(autoincrement())
+  propertyId       Int
+  property         Property        @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  // FIXED: now nullable, same reasoning as FinancialLedger.reservationId —
+  // a hosteler ordering food may have no ReservationRequest behind them.
+  reservationId    Int?
+  reservation      ReservationRequest? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  unitAssignmentId Int?
+  unitAssignment   UnitAssignment? @relation(fields: [unitAssignmentId], references: [id], onDelete: SetNull)
+  accountId        Int
+  account          Account         @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  status           FoodOrderStatus @default(PLACED)
+  notes            String?
+  subtotal         Decimal         @db.Decimal(10, 2)
+  taxAmount        Decimal         @db.Decimal(10, 2)
+  totalAmount      Decimal         @db.Decimal(10, 2)
+  items            FoodOrderItem[]
+  createdAt        DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(6)
+
+  @@index([propertyId, status, createdAt])
+  @@index([reservationId])
+  @@index([accountId])
+}
+
+model FoodOrderItem {
+  id                Int           @id @default(autoincrement())
+  orderId           Int
+  order             FoodOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId        Int?
+  menuItem          FoodMenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  itemNameSnapshot  String
+  unitPriceSnapshot Decimal       @db.Decimal(10, 2)
+  taxRateSnapshot   Decimal       @db.Decimal(5, 2)
+  quantity          Int
+  lineTotal         Decimal       @db.Decimal(10, 2)
+
+  @@index([orderId])
+}
+
+// =====================================================================================
+// 6. HR & PAYROLL MODULE
+// =====================================================================================
+
+model PublicHoliday {
+  id         Int      @id @default(autoincrement())
+  propertyId Int
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  name       String
+  date       DateTime @db.Date
+  isNational Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([propertyId, date])
+}
+
+model SalaryDeduction {
+  id        Int     @id @default(autoincrement())
+  accountId Int
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  name  String
+  type  DeductionType @default(PERCENTAGE)
+  value Decimal       @db.Decimal(10, 2)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+}
+
+// =====================================================================================
+// 7. SYSTEM LOGS & AUDITING
+// =====================================================================================
+
+model SystemStatusLog {
+  id               Int     @id @default(autoincrement())
+  entityType       String
+  entityId         Int
+  action           String
+  details          Json?
+  ipAddress        String?
+  userAgent        String?
+  performedByLabel String?
+
+  performedByAccountId Int?
+  performedBy          Account? @relation("LogPerformedBy", fields: [performedByAccountId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  accountId  Int?
+  propertyId Int?
+  entityType String
+  entityId   Int
+  action     String
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([propertyId])
+  @@index([accountId])
+}

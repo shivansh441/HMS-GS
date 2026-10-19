@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/* 🌙 Enables manual dark-mode control via adding the .dark class to your <html> tag */
+@variant dark (.dark &);
+
+/* 🎨 Your custom design tokens (which used to live in tailwind.config.js) now live right here! */
+@theme {
+  --color-brand-primary: #1e40af;
+  --color-brand-dark: #0f172a;
+  
+  --animate-shake: shake 0.06s ease-in-out infinite;
+}

@@ -1,0 +1,12 @@
+> D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:445:interface UseDispatch<DispatchType extends Dispatch<UnknownAction> = Dispatch<UnknownAction>> {
+  D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:446:    /**
+  D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:447:     * Returns the dispatch function from the Redux store.
+> D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:472:    withTypes: <OverrideDispatchType extends DispatchType>() => UseDispatch<OverrideDispatchType>;
+  D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:473:}
+  D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:474:/**
+> D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:480:declare function createDispatchHook<StateType = unknown, ActionType extends Action = UnknownAction>(context?: Context<ReactReduxContextValue<StateType, ActionType> | null>): UseDispatch<Dispatch<ActionType>>;
+  D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:481:/**
+  D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:482: * A hook to access the redux `dispatch` function.
+> D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:502:declare const useDispatch: UseDispatch<Dispatch<UnknownAction>>;
+  D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:503:
+  D:\new\my-admin-portal\node_modules\react-redux\dist\react-redux.d.ts:504:/**

@@ -1,0 +1,2 @@
+-- No database changes were required for the reservation source work.
+-- This migration is intentionally empty but must contain migration.sql so Prisma can traverse the migration history.

@@ -1,0 +1,1 @@
+ALTER TABLE "AccompanyingGuest" ADD COLUMN "dateOfBirth" DATE;
